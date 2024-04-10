@@ -1,16 +1,16 @@
 #include <ATen/cuda/CUDABlas.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <torch/extension.h>
 #include <pybind11/stl.h>
-#include <cuda_runtime.h>
+#include <torch/extension.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
+#include <cuda_runtime.h>
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
 torch::Tensor cublas_hgemm_batched_impl_simple(torch::Tensor a, torch::Tensor b);
 torch::Tensor cublas_hgemm_batched_impl_custom(
-    torch::Tensor a, 
-    torch::Tensor b, 
+    torch::Tensor a,
+    torch::Tensor b,
     int m,
     int n,
     int k,
@@ -21,7 +21,8 @@ torch::Tensor cublas_hgemm_batched_impl_custom(
     int out_w,
     bool trans_a,
     bool trans_b,
-    bool weight_is_a);
+    bool weight_is_a
+);
 torch::Tensor cublas_gemm_kernel_axbT(torch::Tensor a, torch::Tensor b);
 torch::Tensor cublas_gemm_kernel(
     torch::Tensor a,
@@ -184,22 +185,24 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("a"),
         py::arg("b")
     );
-    m.def("cublas_hgemm_batched_custom", py::overload_cast<
-        torch::Tensor, torch::Tensor, int, int, int, int, int, int, int, int, bool, bool, bool
-    >(&cublas_hgemm_batched_impl_custom), 
-    py::arg("a"),
-    py::arg("b"),
-    py::arg("m")=-1,
-    py::arg("n")=-1,
-    py::arg("k")=-1,
-    py::arg("lda")=-1,
-    py::arg("ldb")=-1,
-    py::arg("ldc")=-1,
-    py::arg("out_h")=-1,
-    py::arg("out_w")=-1,
-    py::arg("trans_a")=true,
-    py::arg("trans_b")=false,
-    py::arg("weight_is_a")=true,
-    "cublas hgemm batched custom implementation"
+    m.def(
+        "cublas_hgemm_batched_custom",
+        py::overload_cast<torch::Tensor, torch::Tensor, int, int, int, int, int, int, int, int, bool, bool, bool>(
+            &cublas_hgemm_batched_impl_custom
+        ),
+        py::arg("a"),
+        py::arg("b"),
+        py::arg("m") = -1,
+        py::arg("n") = -1,
+        py::arg("k") = -1,
+        py::arg("lda") = -1,
+        py::arg("ldb") = -1,
+        py::arg("ldc") = -1,
+        py::arg("out_h") = -1,
+        py::arg("out_w") = -1,
+        py::arg("trans_a") = true,
+        py::arg("trans_b") = false,
+        py::arg("weight_is_a") = true,
+        "cublas hgemm batched custom implementation"
     );
 }

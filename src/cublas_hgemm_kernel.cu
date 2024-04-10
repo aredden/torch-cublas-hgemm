@@ -48,9 +48,7 @@ torch::Tensor cublas_gemm_kernel(torch::Tensor a, torch::Tensor b, int m, int n,
         ldc = m;
     }
     cudaStreamSynchronize(stream);
-    /*
-    cublasStatus_t cublasHgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const half *alpha, const half *A, int lda, const half *B, int ldb, const half *beta, half *C, int ldc)
-    */
+
     cublasStatus_t result = cublasHgemm(
         handle,
         OP_A,

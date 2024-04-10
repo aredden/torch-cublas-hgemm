@@ -72,8 +72,6 @@ class CublasLinear(nn.Linear):
     def forward(self, x):
         if x.dtype != torch.float16 or self.weight.device.type != "cuda":
             out = super().forward(x)
-            if self.has_bias:
-                out += self.bias
             if self._epilogue_str == "RELU":
                 out = torch.relu(out)
             elif self._epilogue_str == "GELU":

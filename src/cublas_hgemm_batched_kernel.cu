@@ -41,7 +41,6 @@ torch::Tensor cublas_hgemm_batched_kernel(
     cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.device().index());
 
-
     size_t batch_sz;
     if (a.ndimension() == 3) {
         batch_sz = a.size(0);
@@ -106,14 +105,19 @@ torch::Tensor cublas_hgemm_batched_kernel(
         handle,
         OP_A,
         OP_B,
-        m,n,k,
+        m,
+        n,
+        k,
         (const __half *)&alpha,
-        (const __half *)a.const_data_ptr<at::Half>(),lda,
+        (const __half *)a.const_data_ptr<at::Half>(),
+        lda,
         stride_a,
-        (const __half *)b.const_data_ptr<at::Half>(),ldb,
+        (const __half *)b.const_data_ptr<at::Half>(),
+        ldb,
         stride_b,
         (const __half *)&beta,
-        (__half*)out.mutable_data_ptr<at::Half>(),ldc,
+        (__half *)out.mutable_data_ptr<at::Half>(),
+        ldc,
         stride_c,
         int(batch_sz)
     ));
