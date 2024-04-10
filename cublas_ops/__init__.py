@@ -6,7 +6,10 @@ from cublas_ops_ext import cublas_hgemm_batched_simple as _cublas_hgemm_batched_
 from cublas_ops_ext import cublaslt_hgemm_simple as _cublaslt_hgemm_simple
 from torch import nn
 
+global has_moved
 has_moved = False
+
+
 class StaticState:
     workspace = torch.empty((1024 * 1024 * 8,), dtype=torch.uint8)
     workspace_size = workspace.nelement()
@@ -28,17 +31,17 @@ class StaticState:
 
 
 @torch.inference_mode()
-def cublaslt_matmul_batched_simple_axbT(a: torch.Tensor, b: torch.Tensor):
+def cublas_half_matmul_batched_simple(a: torch.Tensor, b: torch.Tensor):
     return _cublas_hgemm_batched_simple(a, b)
 
 
 @torch.inference_mode()
-def cublas_hgemm_simple(a: torch.Tensor, b: torch.Tensor):
+def cublas_half_matmul_simple(a: torch.Tensor, b: torch.Tensor):
     return _cublas_hgemm_axbT(b, a)
 
 
 @torch.inference_mode
-def cublaslt_hgemm_simple(
+def cublaslt_fused_half_matmul_simple(
     a: torch.Tensor,
     b: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
@@ -46,7 +49,9 @@ def cublaslt_hgemm_simple(
 ):
     if bias is None:
         bias = StaticState.get("bias")
-    return _cublaslt_hgemm_simple(a, b, bias, epilogue_str, StaticState.get("workspace"))
+    return _cublaslt_hgemm_simple(
+        a, b, bias, epilogue_str, StaticState.get("workspace")
+    )
 
 
 class CublasLinear(nn.Linear):
@@ -65,9 +70,8 @@ class CublasLinear(nn.Linear):
         )
         self.extra_kwargs = {"epilogue_str": epilogue_str, **state_kwargs}
         self._epilogue_str = epilogue_str
-        self.bias_ref = StaticState.get('bias') if not bias else self.bias
+        self.bias_ref = StaticState.get("bias") if not bias else self.bias
         self.has_bias = bias
-
 
     def forward(self, x):
         if x.dtype != torch.float16 or self.weight.device.type != "cuda":
@@ -82,15 +86,13 @@ class CublasLinear(nn.Linear):
             x = x.unsqueeze(0)
         if x.ndim in [2, 3] and not self.has_bias and self._epilogue_str == "NONE":
             if x.ndim == 3:
-                return cublaslt_matmul_batched_simple_axbT(
-                    x.contiguous(), self.weight
-                )
+                return cublas_half_matmul_batched_simple(x.contiguous(), self.weight)
             else:
-                return cublas_hgemm_simple(x.contiguous(), self.weight)
+                return cublas_half_matmul_simple(x.contiguous(), self.weight)
         else:
             leading_dims = x.shape[:-1]
             x = x.reshape(-1, x.shape[-1])
-        out = cublaslt_hgemm_simple(
+        out = cublaslt_fused_half_matmul_simple(
             x.contiguous(), self.weight, bias=self.bias_ref, **self.extra_kwargs
         )
         return out.view(*leading_dims, out.shape[-1])
@@ -132,3 +134,13 @@ class CublasLinearRelu(CublasLinear):
             dtype=dtype,
             epilogue_str="RELU",
         )
+
+
+__ALL__ = [
+    "CublasLinear",
+    "CublasLinearGelu",
+    "CublasLinearRelu",
+    "cublas_half_matmul_simple",
+    "cublas_half_matmul_batched_simple",
+    "cublaslt_fused_half_matmul_simple",
+]
