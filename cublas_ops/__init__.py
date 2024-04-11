@@ -23,8 +23,8 @@ class StaticState:
         global has_moved
         idx = device.index if device.index is not None else 0
         if not has_moved[idx]:
-            cls.workspace = cls.workspace[idx].cuda(idx)
-            cls.bias_g = cls.bias_g[idx].cuda(idx)
+            cls.workspace[idx] = cls.workspace[idx].cuda(idx)
+            cls.bias_g[idx] = cls.bias_g[idx].cuda(idx)
             has_moved[idx] = True
         if "bias" in __name:
             return cls.bias_g[idx]
