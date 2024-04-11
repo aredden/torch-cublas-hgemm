@@ -7,6 +7,9 @@
 #include <cuda_runtime.h>
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
+torch::Tensor
+cudnn_conv2d_kernel(torch::Tensor input, torch::Tensor weight, torch::Tensor bias = {}, int64_t stride = 1, int64_t padding = 1, torch::Tensor workspace = {}, int64_t groups = 1, int64_t dilation = 1);
+
 torch::Tensor cublaslt_hgemm_batched_impl_simple(
     torch::Tensor a,
     torch::Tensor b,
@@ -223,5 +226,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("trans_b") = false,
         py::arg("weight_is_a") = true,
         "cublas hgemm batched custom implementation"
+    );
+    m.def(
+        "cudnn_conv2d_kernel",
+        py::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, int64_t, int64_t, torch::Tensor, int64_t, int64_t>(
+            &cudnn_conv2d_kernel
+        ),
+        py::arg("input"),
+        py::arg("weight"),
+        py::arg("bias") = torch::empty({}),
+        py::arg("stride") = 1,
+        py::arg("padding") = 1,
+        py::arg("workspace") = torch::empty({}),
+        py::arg("groups") = 1,
+        py::arg("dilation") = 1
     );
 }
