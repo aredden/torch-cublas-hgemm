@@ -19,6 +19,7 @@ setup(
             'src/cublas_hgemm_kernel.cu',
             'src/cublas_hgemm_batched_kernel.cu',
             'src/cublaslt_hgemm_kernel.cu',
+            'src/cublaslt_hgemm_batched_kernel.cu'
             # 'src/cublas_state.cpp'
         ],
         extra_compile_args={

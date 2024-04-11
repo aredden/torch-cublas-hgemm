@@ -7,6 +7,13 @@
 #include <cuda_runtime.h>
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
+torch::Tensor cublaslt_hgemm_batched_impl_simple(
+    torch::Tensor a,
+    torch::Tensor b,
+    torch::Tensor bias = {},
+    std::string epilogue_str = "NONE",
+    torch::Tensor workspace = {}
+);
 torch::Tensor cublas_hgemm_batched_impl_simple(torch::Tensor a, torch::Tensor b);
 torch::Tensor cublas_hgemm_batched_impl_custom(
     torch::Tensor a,
@@ -171,6 +178,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "cublaslt_hgemm_simple",
         py::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, std::string, torch::Tensor>(
             &cublaslt_hgemm_simple
+        ),
+        py::arg("a"),
+        py::arg("b"),
+        py::arg("bias") = torch::empty({}),
+        py::arg("epilogue_str") = "NONE",
+        py::arg("workspace") = torch::empty({})
+    );
+
+    m.def(
+        "cublaslt_hgemm_batched_simple",
+        py::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, std::string, torch::Tensor>(
+            &cublaslt_hgemm_batched_impl_simple
         ),
         py::arg("a"),
         py::arg("b"),

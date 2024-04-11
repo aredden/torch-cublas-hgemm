@@ -1,31 +1,35 @@
 from typing import Literal, Optional
 
 import torch
+
 from cublas_ops_ext import cublas_hgemm_axbT as _cublas_hgemm_axbT
 from cublas_ops_ext import cublas_hgemm_batched_simple as _cublas_hgemm_batched_simple
 from cublas_ops_ext import cublaslt_hgemm_simple as _cublaslt_hgemm_simple
+from cublas_ops_ext import cublaslt_hgemm_batched_simple as _cublaslt_hgemm_batched_simple
 from torch import nn
 
 global has_moved
-has_moved = False
-
+has_moved = {
+    idx: False for idx in range(torch.cuda.device_count())
+}
 
 class StaticState:
-    workspace = torch.empty((1024 * 1024 * 8,), dtype=torch.uint8)
-    workspace_size = workspace.nelement()
-    bias_g = torch.tensor([], dtype=torch.float16)
+    workspace = {idx:torch.empty((1024 * 1024 * 8,), dtype=torch.uint8) for idx in range(torch.cuda.device_count())}
+    workspace_size = workspace[0].nelement()
+    bias_g = {idx:torch.tensor([], dtype=torch.float16) for idx in range(torch.cuda.device_count())}
 
     @classmethod
-    def get(cls, __name: str) -> torch.Any:
+    def get(cls, __name: str, device: torch.device) -> torch.Any:
         global has_moved
-        if not has_moved:
-            cls.workspace = cls.workspace.cuda()
-            cls.bias_g = cls.bias_g.cuda()
-            has_moved = True
+        idx = device.index if device.index is not None else 0
+        if not has_moved[idx]:
+            cls.workspace = cls.workspace[idx].cuda(idx)
+            cls.bias_g = cls.bias_g[idx].cuda(idx)
+            has_moved[idx] = True
         if "bias" in __name:
-            return cls.bias_g
+            return cls.bias_g[idx]
         if "workspace" in __name:
-            return cls.workspace
+            return cls.workspace[idx]
         if "workspace_size" in __name:
             return cls.workspace_size
 
@@ -48,9 +52,23 @@ def cublaslt_fused_half_matmul_simple(
     epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE",
 ):
     if bias is None:
-        bias = StaticState.get("bias")
+        bias = StaticState.get("bias", a.device)
     return _cublaslt_hgemm_simple(
-        a, b, bias, epilogue_str, StaticState.get("workspace")
+        a, b, bias, epilogue_str, StaticState.get("workspace", a.device)
+    )
+
+
+@torch.inference_mode
+def cublaslt_fused_half_matmul_batched_simple(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE",
+):
+    if bias is None:
+        bias = StaticState.get("bias", a.device)
+    return _cublaslt_hgemm_batched_simple(
+        a, b, bias, epilogue_str, StaticState.get("workspace", a.device)
     )
 
 
@@ -68,9 +86,8 @@ class CublasLinear(nn.Linear):
         super().__init__(
             in_features, out_features, bias=bias, device=device, dtype=dtype
         )
-        self.extra_kwargs = {"epilogue_str": epilogue_str, **state_kwargs}
         self._epilogue_str = epilogue_str
-        self.bias_ref = StaticState.get("bias") if not bias else self.bias
+        self.bias_ref = None if not bias else self.bias
         self.has_bias = bias
 
     def forward(self, x):
@@ -82,18 +99,29 @@ class CublasLinear(nn.Linear):
                 out = torch.nn.functional.gelu(out)
             return out
 
+        use_cublasLt = (self.has_bias or self._epilogue_str != "NONE")
         if x.ndim == 1:
             x = x.unsqueeze(0)
-        if x.ndim in [2, 3] and not self.has_bias and self._epilogue_str == "NONE":
+        dim2or3 = x.ndim in [2, 3]
+        if dim2or3 and not use_cublasLt:
             if x.ndim == 3:
                 return cublas_half_matmul_batched_simple(x.contiguous(), self.weight)
             else:
                 return cublas_half_matmul_simple(x.contiguous(), self.weight)
+        elif dim2or3 and use_cublasLt:
+            if x.ndim == 3:
+                return cublaslt_fused_half_matmul_batched_simple(
+                    x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                )
+            else:
+                return cublaslt_fused_half_matmul_simple(
+                    x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                )
         else:
             leading_dims = x.shape[:-1]
             x = x.reshape(-1, x.shape[-1])
         out = cublaslt_fused_half_matmul_simple(
-            x.contiguous(), self.weight, bias=self.bias_ref, **self.extra_kwargs
+            x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
         )
         return out.view(*leading_dims, out.shape[-1])
 
@@ -143,4 +171,5 @@ __ALL__ = [
     "cublas_half_matmul_simple",
     "cublas_half_matmul_batched_simple",
     "cublaslt_fused_half_matmul_simple",
+    "cublaslt_fused_half_matmul_batched_simple"
 ]

@@ -73,7 +73,7 @@ linear_relu = CublasLinearRelu(in_features, out_features, bias=bias, device='cud
 ### Linear Layers
 
 - `CublasLinear(in_features, out_features, bias=True, device=None, dtype=torch.float16, epilogue_str="NONE")`
-  - A linear layer that performs `A x B^T` matrix multiplication with optional bias addition.
+  - A linear layer that performs `A x B^T + bias` matrix multiplication with optional bias addition.
 - `CublasLinearGelu(in_features, out_features, bias=True, device=None, dtype=torch.float16)`
   - A linear layer with fused GELU activation: `gelu(A x B^T + bias)`.
 - `CublasLinearRelu(in_features, out_features, bias=True, device=None, dtype=torch.float16)`
@@ -84,9 +84,11 @@ linear_relu = CublasLinearRelu(in_features, out_features, bias=bias, device='cud
 - `cublas_half_matmul_simple(a: torch.Tensor, b: torch.Tensor)`
   - Performs a simple `A x B^T` matrix multiplication using cuBLAS.
 - `cublas_half_matmul_batched_simple(a: torch.Tensor, b: torch.Tensor)`
-  - Performs a batched `A x B^T` matrix multiplication using cuBLAS.
+  - Performs a batched `A x B^T` batched matrix multiplication using cuBLAS. At least one of A/B should have 3 dimensions, with the other having 2 or 3.
 - `cublaslt_fused_half_matmul_simple(a: torch.Tensor, b: torch.Tensor, bias: Optional[torch.Tensor] = None, epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE")`
-  - Performs a fused `A x B^T` matrix multiplication with optional bias addition and activation using cuBLASLt.
+  - Performs a fused `optional_activation(A x B^T + optional(bias))` matrix multiplication with optional bias addition and activation using cuBLASLt.
+- `def cublaslt_fused_half_matmul_batched_simple(a: torch.Tensor, b: torch.Tensor, bias: Optional[torch.Tensor] = None, epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE")`
+  - Performs a fused `optional_activation(A x B^T + optional(bias))` batched matrix multiplication with optional bias addition and activation using cuBLASLt. At least one of A/B should have 3 dimensions, with the other having 2 or 3.
 
 ## Contributing
 
