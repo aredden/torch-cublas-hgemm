@@ -3,6 +3,7 @@
 #include <torch/extension.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cuda_runtime.h>
 #include <iostream>
 #include <string.h>
@@ -36,10 +37,11 @@ torch::Tensor cublas_hgemm_batched_kernel(
     int out_w = -1,
     bool weight_is_a = true
 ) {
+    c10::cuda::CUDAGuard device_guard(a.device());
+    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
+
     half alpha = 1.0f;
     half beta = 0.0f;
-    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.device().index());
 
     size_t batch_sz;
     if (a.ndimension() == 3) {
@@ -85,7 +87,6 @@ torch::Tensor cublas_hgemm_batched_kernel(
     if (ldc == -1) {
         ldc = m;
     }
-    checkCudaStatus(cudaStreamSynchronize(stream));
     /*
     cublasStatus_t cublasHgemmStridedBatched(cublasHandle_t handle,
                                     cublasOperation_t transa,
@@ -121,7 +122,6 @@ torch::Tensor cublas_hgemm_batched_kernel(
         stride_c,
         int(batch_sz)
     ));
-    checkCudaStatus(cudaStreamSynchronize(stream));
     return out;
 }
 

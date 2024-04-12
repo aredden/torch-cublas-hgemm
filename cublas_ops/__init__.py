@@ -102,28 +102,32 @@ class CublasLinear(nn.Linear):
         use_cublasLt = (self.has_bias or self._epilogue_str != "NONE")
         if x.ndim == 1:
             x = x.unsqueeze(0)
-        dim2or3 = x.ndim in [2, 3]
-        if dim2or3 and not use_cublasLt:
+        if not use_cublasLt:
             if x.ndim == 3:
-                return cublas_half_matmul_batched_simple(x.contiguous(), self.weight)
-            else:
-                return cublas_half_matmul_simple(x.contiguous(), self.weight)
-        elif dim2or3 and use_cublasLt:
-            if x.ndim == 3:
-                return cublaslt_fused_half_matmul_batched_simple(
-                    x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
-                )
-            else:
-                return cublaslt_fused_half_matmul_simple(
-                    x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
-                )
-        else:
+                return cublas_half_matmul_batched_simple(x, self.weight)
+            elif x.ndim == 2:
+                return cublas_half_matmul_simple(x, self.weight)
             leading_dims = x.shape[:-1]
             x = x.reshape(-1, x.shape[-1])
-        out = cublaslt_fused_half_matmul_simple(
-            x.contiguous(), self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
-        )
-        return out.view(*leading_dims, out.shape[-1])
+            out = cublas_half_matmul_simple(x, self.weight).view(
+                *leading_dims, out.shape[-1]
+            )
+        if use_cublasLt:
+            if x.ndim == 3:
+                return cublaslt_fused_half_matmul_batched_simple(
+                    x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                )
+            elif x.ndim == 2:
+                return cublaslt_fused_half_matmul_simple(
+                    x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                )
+    
+            leading_dims = x.shape[:-1]
+            x = x.reshape(-1, x.shape[-1])
+            out = cublaslt_fused_half_matmul_simple(
+                x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+            ).view(*leading_dims, out.shape[-1])
+        return out
 
 
 class CublasLinearGelu(CublasLinear):

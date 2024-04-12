@@ -1,6 +1,7 @@
 #include <ATen/cuda/CUDABlas.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/extension.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -20,10 +21,13 @@ inline void checkCublasStatus(cublasStatus_t status) {
 }
 
 torch::Tensor cublas_gemm_kernel(torch::Tensor a, torch::Tensor b, int m, int n, int k, bool trans_a = false, bool trans_b = false, int lda = -1, int ldb = -1, int ldc = -1, int out_h = -1, int out_w = -1) {
+    c10::cuda::CUDAGuard device_guard(a.device());
+    
+    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
+    
+
     at::Half alpha = 1.0f;
     at::Half beta = 0.0f;
-    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.device().index());
 
     if (out_h == -1) {
         out_h = m;
@@ -47,8 +51,6 @@ torch::Tensor cublas_gemm_kernel(torch::Tensor a, torch::Tensor b, int m, int n,
     if (ldc == -1) {
         ldc = m;
     }
-    cudaStreamSynchronize(stream);
-
     cublasStatus_t result = cublasHgemm(
         handle,
         OP_A,
@@ -65,8 +67,6 @@ torch::Tensor cublas_gemm_kernel(torch::Tensor a, torch::Tensor b, int m, int n,
         (__half *)out.data_ptr<at::Half>(),
         ldc
     );
-    cudaStreamSynchronize(stream);
-
     if (result != CUBLAS_STATUS_SUCCESS) {
         const char* results = cublasGetStatusString(result);
 
@@ -88,7 +88,6 @@ torch::Tensor cublas_gemm_kernel_axbT(torch::Tensor a, torch::Tensor b) {
     at::Half beta = 0.0f;
 
     cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.device().index());
 
     int m = a.size(0);
     int n = b.size(0);
@@ -104,7 +103,6 @@ torch::Tensor cublas_gemm_kernel_axbT(torch::Tensor a, torch::Tensor b) {
     // output as (N, M) - because opposite land.
     torch::Tensor out = torch::empty({out_h, out_w}, a.options().device(a.device()));
 
-    checkCudaStatus(cudaStreamSynchronize(stream));
     /*
     ### REFERENCE ###
     cublasStatus_t cublasHgemm(
@@ -142,8 +140,6 @@ torch::Tensor cublas_gemm_kernel_axbT(torch::Tensor a, torch::Tensor b) {
         (__half *)out.data_ptr<at::Half>(),
         ldc
     ));
-
-    checkCudaStatus(cudaStreamSynchronize(stream));
 
     return out;
 }

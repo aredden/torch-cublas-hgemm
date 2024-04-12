@@ -1,6 +1,7 @@
 #include <ATen/cuda/CUDABlas.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/extension.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -39,11 +40,10 @@ torch::Tensor cublaslt_gemm_launch_axbT(
     int out_h = -1,
     int out_w = -1
 ) {
-    cublasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.device().index());
-    bool has_bias = bias.numel() > 0;
+    c10::cuda::CUDAGuard device_guard(a.device());
 
-    checkCudaStatus(cudaStreamSynchronize(stream));
+    cublasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
+    bool has_bias = bias.numel() > 0;
 
     if (workspace.numel() == 0) {
         // Allocate workspace if not provided
@@ -65,7 +65,7 @@ torch::Tensor cublaslt_gemm_launch_axbT(
     // Get bias pointer and data type
     // Will only be used if has_bias is true
     half *bias_ref = (half *)bias.const_data_ptr<at::Half>();
-    auto cublasBiasDataType = CUDA_R_16F;
+    cudaDataType_t cublasBiasDataType = CUDA_R_16F;
 
     // Allocate output tensor
     torch::Tensor out = torch::empty({out_h, out_w}, a.options().device(a.device()));
@@ -163,8 +163,6 @@ torch::Tensor cublaslt_gemm_launch_axbT(
     const at::Half alpha = 1.0f;
     const at::Half beta = 0.0f;
 
-    checkCudaStatus(cudaStreamSynchronize(stream));
-
     // CUDA GO NYOOM NYOOM
     checkCublasStatus(cublasLtMatmul(
         ltHandle,
@@ -182,11 +180,9 @@ torch::Tensor cublaslt_gemm_launch_axbT(
         nullptr,
         (void *)workspace.data_ptr<uint8_t>(),
         workspaceSize,
-        stream
+        at::cuda::getCurrentCUDAStream(a.device().index())
     ));
 
-    // Sync stream
-    checkCudaStatus(cudaStreamSynchronize(stream));
 
     // Clean up
     checkCublasStatus(cublasLtMatmulPreferenceDestroy(preference));
