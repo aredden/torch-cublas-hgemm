@@ -42,7 +42,8 @@ torch::Tensor cublaslt_gemm_launch_axbT(
 ) {
     c10::cuda::CUDAGuard device_guard(a.device());
 
-    cublasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
+    cublasLtHandle_t ltHandle;
+    checkCublasStatus(cublasLtCreate(&ltHandle));
     bool has_bias = bias.numel() > 0;
 
     if (workspace.numel() == 0) {

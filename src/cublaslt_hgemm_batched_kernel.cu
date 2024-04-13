@@ -78,12 +78,14 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
 ) {
     c10::cuda::CUDAGuard device_guard(a.device());
 
-    cublasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
+    cublasLtHandle_t ltHandle;
+    checkCublasStatus(cublasLtCreate(&ltHandle));
+
     bool has_bias = bias.numel() > 0;
 
     if (workspace.numel() == 0) {
         // Allocate workspace if not provided
-        workspace = torch::empty(workspaceSize, at::TensorOptions().dtype(torch::kUInt8).device(a.device()));
+        workspace = at::empty(workspaceSize, at::TensorOptions().dtype(torch::kUInt8).device(a.device()));
     }
 
     int32_t a_batch_stride = a.ndimension() == 3 ? a.stride(0) : 0;
@@ -107,7 +109,7 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     auto cublasBiasDataType = CUDA_R_16F;
 
     // Allocate output tensor
-    torch::Tensor out = torch::empty({batch_sz, out_h, out_w}, a.options().device(a.device()));
+    torch::Tensor out = at::empty({batch_sz, out_h, out_w}, a.options().device(a.device()));
 
     int32_t out_stride = out.stride(0);
 
