@@ -12,15 +12,15 @@ def append_nvcc_threads(nvcc_extra_args):
     return nvcc_extra_args + ["--threads", nvcc_threads]
 setup(
     name='cublas_ops',
-    version="0.0.2",
+    version="0.0.3",
     ext_modules=[
         CUDAExtension('cublas_ops_ext', [
             'src/cublas_hgemm.cpp',
             'src/cublas_hgemm_kernel.cu',
             'src/cublas_hgemm_batched_kernel.cu',
             'src/cublaslt_hgemm_kernel.cu',
-            'src/cublaslt_hgemm_batched_kernel.cu'
-            # 'src/cublas_state.cpp'
+            'src/cublaslt_hgemm_batched_kernel.cu',
+            'src/simt_hgemv.cu',
         ],
         extra_compile_args={
                 "cxx": ["-O3", "-std=c++17"] + generator_flag,
@@ -42,7 +42,7 @@ setup(
             }
         ),
     ],
-    packages=find_packages(),
+    packages=find_packages(exclude=['.misc']),
     cmdclass={
         'build_ext': BuildExtension
     })

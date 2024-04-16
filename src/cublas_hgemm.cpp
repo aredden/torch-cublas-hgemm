@@ -7,6 +7,7 @@
 #include <cuda_runtime.h>
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
+void initGemvCustomBindings(py::module &m);
 torch::Tensor cublaslt_hgemm_batched_impl_simple(
     torch::Tensor a,
     torch::Tensor b,
@@ -224,4 +225,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("weight_is_a") = true,
         "cublas hgemm batched custom implementation"
     );
+    initGemvCustomBindings(m);
 }

@@ -5,3 +5,5 @@ __pycache__/
 *.egg
 
 src/cublas_state.cpp
+.misc/
+.misc
