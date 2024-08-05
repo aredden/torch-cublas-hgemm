@@ -102,7 +102,6 @@ class CublasLinear(nn.Linear):
             in_features, out_features, bias=bias, device=device, dtype=dtype
         )
         self._epilogue_str = epilogue_str
-        self.bias_ref = None if not bias else self.bias
         self.has_bias = bias
 
     def forward(self, x):
@@ -123,7 +122,7 @@ class CublasLinear(nn.Linear):
                 return out
             else:
                 if self.has_bias:
-                    out += self.bias_ref
+                    out += self.bias.data
                 if self._epilogue_str == "RELU":
                     return torch.relu(out)
                 elif self._epilogue_str == "GELU":
@@ -142,17 +141,17 @@ class CublasLinear(nn.Linear):
         if use_cublasLt:
             if x.ndim == 3:
                 return cublaslt_fused_half_matmul_batched_simple(
-                    x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                    x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
                 )
             elif x.ndim == 2:
                 return cublaslt_fused_half_matmul_simple(
-                    x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                    x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
                 )
 
             leading_dims = x.shape[:-1]
             x = x.reshape(-1, x.shape[-1])
             out = cublaslt_fused_half_matmul_simple(
-                x, self.weight, bias=self.bias_ref, epilogue_str=self._epilogue_str
+                x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
             ).view(*leading_dims, out.shape[-1])
         return out
 

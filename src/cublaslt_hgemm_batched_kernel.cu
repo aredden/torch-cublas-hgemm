@@ -1,5 +1,6 @@
 #include <ATen/cuda/CUDABlas.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 #include <cublasLt.h>
@@ -8,23 +9,27 @@
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
 
-inline void checkCudaStatus(cudaError_t status) {
-    if (status != cudaSuccess) {
+inline void checkCudaStatus(cudaError_t status)
+{
+    if (status != cudaSuccess)
+    {
         printf("cuda API failed with status %d: %s\n", status, cudaGetErrorString(status));
         throw std::logic_error("cuda API failed");
     }
 }
 
-inline void checkCublasStatus(cublasStatus_t status) {
-    if (status != CUBLAS_STATUS_SUCCESS) {
+inline void checkCublasStatus(cublasStatus_t status)
+{
+    if (status != CUBLAS_STATUS_SUCCESS)
+    {
         printf("cuBLAS API failed with status %d\n", status);
         throw std::logic_error("cuBLAS API failed");
     }
 }
 
 cublasLtMatrixLayout_t createMatrixLayout(
-    torch::Tensor tensor, uint64_t rows, uint64_t cols, int64_t ld, int64_t stride = 0, int batch_sz = 1
-) {
+    torch::Tensor tensor, uint64_t rows, uint64_t cols, int64_t ld, int64_t stride = 0, int batch_sz = 1)
+{
     cublasLtMatrixLayout_t layout = nullptr;
 
     // std::cout << "Creating matrix layout" << std::endl;
@@ -32,26 +37,32 @@ cublasLtMatrixLayout_t createMatrixLayout(
 
     // std::cout << "Setting batch count" << std::endl;
     checkCublasStatus(
-        cublasLtMatrixLayoutSetAttribute(layout, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz))
-    );
+        cublasLtMatrixLayoutSetAttribute(layout, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz)));
     // std::cout << "Setting stride" << std::endl;
     checkCublasStatus(
-        cublasLtMatrixLayoutSetAttribute(layout, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &stride, sizeof(stride))
-    );
+        cublasLtMatrixLayoutSetAttribute(layout, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &stride, sizeof(stride)));
 
     return layout;
 }
 
-cublasLtEpilogue_t parseEpilogue(std::string epilogue_str, bool has_bias) {
+cublasLtEpilogue_t parseEpilogue(std::string epilogue_str, bool has_bias)
+{
     cublasLtEpilogue_t epilogue;
 
-    if (epilogue_str == "NONE") {
+    if (epilogue_str == "NONE")
+    {
         epilogue = has_bias ? CUBLASLT_EPILOGUE_BIAS : CUBLASLT_EPILOGUE_DEFAULT;
-    } else if (epilogue_str == "RELU") {
+    }
+    else if (epilogue_str == "RELU")
+    {
         epilogue = has_bias ? CUBLASLT_EPILOGUE_RELU_BIAS : CUBLASLT_EPILOGUE_RELU;
-    } else if (epilogue_str == "GELU") {
+    }
+    else if (epilogue_str == "GELU")
+    {
         epilogue = has_bias ? CUBLASLT_EPILOGUE_GELU_BIAS : CUBLASLT_EPILOGUE_GELU;
-    } else {
+    }
+    else
+    {
         throw std::invalid_argument("Invalid epilogue type");
     }
 
@@ -74,16 +85,16 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     int ldb,
     int ldc,
     int out_h,
-    int out_w
-) {
+    int out_w)
+{
     c10::cuda::CUDAGuard device_guard(a.device());
 
-    cublasLtHandle_t ltHandle;
-    checkCublasStatus(cublasLtCreate(&ltHandle));
+    cublasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
 
     bool has_bias = bias.numel() > 0;
 
-    if (workspace.numel() == 0) {
+    if (workspace.numel() == 0)
+    {
         // Allocate workspace if not provided
         workspace = at::empty(workspaceSize, at::TensorOptions().dtype(torch::kUInt8).device(a.device()));
     }
@@ -92,13 +103,20 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     int32_t b_batch_stride = b.ndimension() == 3 ? b.stride(0) : 0;
 
     int32_t batch_sz;
-    if (a.ndimension() == 3 and b.ndimension() == 3) {
+    if (a.ndimension() == 3 and b.ndimension() == 3)
+    {
         batch_sz = max(a.size(0), b.size(0));
-    } else if (a.ndimension() == 3) {
+    }
+    else if (a.ndimension() == 3)
+    {
         batch_sz = a.size(0);
-    } else if (b.ndimension() == 3) {
+    }
+    else if (b.ndimension() == 3)
+    {
         batch_sz = b.size(0);
-    } else {
+    }
+    else
+    {
         throw std::logic_error("batch size not found, either a or b should be 3D tensor!");
     }
 
@@ -127,11 +145,9 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
 
     // Set transposition attributes
     checkCublasStatus(
-        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSA, &transa, sizeof(transa))
-    );
+        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSA, &transa, sizeof(transa)));
     checkCublasStatus(
-        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSB, &transb, sizeof(transb))
-    );
+        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSB, &transb, sizeof(transb)));
 
     // std::cout << "Parsing epilogue" << std::endl;
 
@@ -142,18 +158,16 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
 
     // Set epilogue attribute in operation descriptor
     checkCublasStatus(
-        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue))
-    );
+        cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue)));
     // std::cout << "Set epilogue, adding bias" << std::endl;
 
     // Set bias attributes if bias is provided
-    if (has_bias) {
+    if (has_bias)
+    {
         checkCublasStatus(cublasLtMatmulDescSetAttribute(
-            operationDesc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias_ref, sizeof(bias_ref)
-        ));
+            operationDesc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias_ref, sizeof(bias_ref)));
         checkCublasStatus(cublasLtMatmulDescSetAttribute(
-            operationDesc, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &cublasBiasDataType, sizeof(cublasBiasDataType)
-        ));
+            operationDesc, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &cublasBiasDataType, sizeof(cublasBiasDataType)));
         // checkCublasStatus(
         //     cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_BIAS_BATCH_STRIDE, &bias_stride, sizeof(bias_stride))
         // );
@@ -163,12 +177,10 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
 
     // std::cout << "Creating matrix layout A" << std::endl;
     aDesc = createMatrixLayout(
-        a, transa == CUBLAS_OP_N ? m : k, transa == CUBLAS_OP_N ? k : m, lda, a_batch_stride, batch_sz
-    );
+        a, transa == CUBLAS_OP_N ? m : k, transa == CUBLAS_OP_N ? k : m, lda, a_batch_stride, batch_sz);
     // std::cout << "Creating matrix layout B" << std::endl;
     bDesc = createMatrixLayout(
-        b, transb == CUBLAS_OP_N ? k : n, transb == CUBLAS_OP_N ? n : k, ldb, b_batch_stride, batch_sz
-    );
+        b, transb == CUBLAS_OP_N ? k : n, transb == CUBLAS_OP_N ? n : k, ldb, b_batch_stride, batch_sz);
     // std::cout << "Creating matrix layout out" << std::endl;
     outDesc = createMatrixLayout(out, m, n, ldc, out_stride, batch_sz);
 
@@ -178,31 +190,31 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
 
     // std::cout << "Setting preference" << std::endl;
     checkCublasStatus(cublasLtMatmulPreferenceSetAttribute(
-        preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSize, sizeof(workspaceSize)
-    ));
+        preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSize, sizeof(workspaceSize)));
 
     /*
 
-    ### FOR REFERENCE ###
-    
-    cublasStatus_t cublasLtMatmul(
-        cublasLtHandle_t lightHandle, 
-        cublasLtMatmulDesc_t computeDesc, 
-        const void *alpha, const void *A, 
-        cublasLtMatrixLayout_t Adesc, 
-        const void *B, 
-        cublasLtMatrixLayout_t Bdesc, 
-        const void *beta, 
-        const void *C, 
-        cublasLtMatrixLayout_t Cdesc, 
-        void *D, 
-        cublasLtMatrixLayout_t Ddesc, 
-        const cublasLtMatmulAlgo_t *algo, 
-        void *workspace, 
-        size_t workspaceSizeInBytes, 
-        cudaStream_t stream
-    )
-    */
+
+### FOR REFERENCE ###
+
+cublasStatus_t cublasLtMatmul(
+    cublasLtHandle_t lightHandle,
+    cublasLtMatmulDesc_t computeDesc,
+    const void *alpha, const void *A,
+    cublasLtMatrixLayout_t Adesc,
+    const void *B,
+    cublasLtMatrixLayout_t Bdesc,
+    const void *beta,
+    const void *C,
+    cublasLtMatrixLayout_t Cdesc,
+    void *D,
+    cublasLtMatrixLayout_t Ddesc,
+    const cublasLtMatmulAlgo_t *algo,
+    void *workspace,
+    size_t workspaceSizeInBytes,
+    cudaStream_t stream
+)
+*/
     const at::Half alpha = 1.0f;
     const at::Half beta = 0.0f;
     // CUDA GO NYOOM NYOOM
@@ -215,15 +227,14 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
         (const void *)b.const_data_ptr<at::Half>(),
         bDesc,
         (const void *)&beta,
-        (const void *)out.data_ptr<at::Half>(),
+        (const void *)out.mutable_data_ptr<at::Half>(),
         outDesc,
-        (void *)out.data_ptr<at::Half>(),
+        (void *)out.mutable_data_ptr<at::Half>(),
         outDesc,
         nullptr,
-        (void *)workspace.data_ptr<uint8_t>(),
+        (void *)workspace.mutable_data_ptr<uint8_t>(),
         workspaceSize,
-        at::cuda::getCurrentCUDAStream(a.device().index())
-    ));
+        at::cuda::getCurrentCUDAStream(a.device().index())));
 
     // Clean up
     checkCublasStatus(cublasLtMatmulPreferenceDestroy(preference));
@@ -231,8 +242,6 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     checkCublasStatus(cublasLtMatrixLayoutDestroy(bDesc));
     checkCublasStatus(cublasLtMatrixLayoutDestroy(aDesc));
     checkCublasStatus(cublasLtMatmulDescDestroy(operationDesc));
-    checkCublasStatus(cublasLtDestroy(ltHandle));
-
     return out;
 }
 
@@ -241,8 +250,8 @@ torch::Tensor cublaslt_hgemm_batched_impl_simple(
     torch::Tensor b,
     torch::Tensor bias = {},
     std::string epilogue_str = "NONE",
-    torch::Tensor workspace = {}
-) {
+    torch::Tensor workspace = {})
+{
     auto A = b;
     auto B = a;
 
@@ -275,6 +284,5 @@ torch::Tensor cublaslt_hgemm_batched_impl_simple(
         ldb,
         ldc,
         out_h,
-        out_w
-    );
+        out_w);
 }
