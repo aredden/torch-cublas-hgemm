@@ -103,7 +103,7 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     int32_t b_batch_stride = b.ndimension() == 3 ? b.stride(0) : 0;
 
     int32_t batch_sz;
-    if (a.ndimension() == 3 and b.ndimension() == 3)
+    if (a.ndimension() == 3 && b.ndimension() == 3)
     {
         batch_sz = max(a.size(0), b.size(0));
     }
