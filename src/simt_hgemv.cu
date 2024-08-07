@@ -6,7 +6,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <torch/extension.h>
-
+#include <cuda_runtime_api.h>
 #define WARP_SIZE 32
 #define SHARED_MEM_MAX_ROWS 64
 #define MAX_THREADS_PER_BLOCK 1024
@@ -108,8 +108,8 @@ torch::Tensor simt_hgemv_op(
 {
     at::DeviceGuard guard(mat.device());
 
-    PsudoTensor mat_psudo = {mat.size(0), mat.size(1)};
-    PsudoTensor vec_psudo = {vec.size(0), vec.size(1)};
+    PsudoTensor mat_psudo = {uint32_t(mat.size(0)), uint32_t(mat.size(1))};
+    PsudoTensor vec_psudo = {uint32_t(vec.size(0)), uint32_t(vec.size(1))};
     TORCH_CHECK(mat_psudo.width_ == vec_psudo.height_, "Matrix and vector dimensions do not match");
     TORCH_CHECK(block_dim_y <= SHARED_MEM_MAX_ROWS);
     TORCH_CHECK(block_dim_x * block_dim_y <= MAX_THREADS_PER_BLOCK);

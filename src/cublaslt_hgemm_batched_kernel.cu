@@ -5,7 +5,7 @@
 #include <torch/extension.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
-#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
 
 #define DEFAULT_WORKSPACE_SIZE 134217728
 
@@ -123,7 +123,6 @@ torch::Tensor cublaslt_gemm_batched_launch_axbT(
     // Get bias pointer and data type
     // Will only be used if has_bias is true
     half *bias_ref = (half *)bias.const_data_ptr<at::Half>();
-    int32_t bias_stride = 0;
     auto cublasBiasDataType = CUDA_R_16F;
 
     // Allocate output tensor

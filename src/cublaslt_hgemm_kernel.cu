@@ -5,8 +5,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <cublasLt.h>
 #include <cublas_v2.h>
-#include <cuda_runtime.h>
-
+#include <cuda_runtime_api.h>
 #define DEFAULT_WORKSPACE_SIZE 134217728
 
 inline void checkCudaStatus(cudaError_t status)

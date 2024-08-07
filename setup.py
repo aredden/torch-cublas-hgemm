@@ -1,15 +1,27 @@
 import os
 from setuptools import setup, find_packages
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension, _find_cuda_home
 import torch
+import platform
 
 CPU_COUNT = os.cpu_count()
 generator_flag = []
 torch_dir = torch.__path__[0]
 
-
 cc_flag = []
 
+def find_cublas_headers():
+    home = _find_cuda_home()
+    if home is None:
+        raise EnvironmentError("CUDA environment not found, ensure that you have CUDA toolkit installed locally, and have added it to your environment variables as CUDA_HOME=/path/to/cuda-12.x")
+    if platform.system() == "Windows":
+        cublas_include = os.path.join(home, "include")
+        cublas_libs = os.path.join(home, "lib", "x64")
+    else:
+        cublas_include = os.path.join(home, "include")
+        cublas_libs = os.path.join(home, "lib64")
+    
+    return cublas_include, cublas_libs
 
 def append_nvcc_threads(nvcc_extra_args):
     nvcc_threads = os.getenv("NVCC_THREADS") or f"{min(CPU_COUNT, 8)}"
@@ -48,6 +60,8 @@ setup(
                     + cc_flag
                 ),
             },
+            libraries=["cublas","cublasLt"],
+            include_dirs=[*find_cublas_headers()],
         ),
     ],
     packages=find_packages(

@@ -10,6 +10,7 @@ from cublas_ops_ext import (
 )
 from cublas_ops_ext import cublaslt_hgemm_simple as _cublaslt_hgemm_simple
 from torch import nn
+from torch.nn import functional as F
 
 global has_moved
 has_moved = {idx: False for idx in range(torch.cuda.device_count())}
@@ -43,7 +44,12 @@ class StaticState:
 
 
 @torch.no_grad()
-def hgemv_simt(vec: torch.HalfTensor, mat: torch.HalfTensor, block_dim_x: int = 32):
+@torch.library.custom_op(
+    "cublas_ops_ext::hgemv_simt", device_types=["cuda"], mutates_args=()
+)
+def hgemv_simt(
+    vec: torch.Tensor, mat: torch.Tensor, block_dim_x: int = 32
+) -> torch.Tensor:
     prev_dims = vec.shape[:-1]
     return _simt_hgemv(mat, vec.view(-1, 1), block_dim_x=block_dim_x).view(
         *prev_dims, -1
@@ -51,22 +57,50 @@ def hgemv_simt(vec: torch.HalfTensor, mat: torch.HalfTensor, block_dim_x: int = 
 
 
 @torch.no_grad()
-def cublas_half_matmul_batched_simple(a: torch.Tensor, b: torch.Tensor):
-    return _cublas_hgemm_batched_simple(a, b)
+@torch.library.register_fake("cublas_ops_ext::hgemv_simt")
+def _(vec: torch.Tensor, mat: torch.Tensor, block_dim_x: int = 32) -> torch.Tensor:
+    # prev_dims = vec.shape[:-1]
+    return F.linear(vec.view(1,-1), mat, None)
+    # return (mat @ vec.reshape(-1, 1).contiguous()).view(*prev_dims, -1)
 
 
 @torch.no_grad()
-def cublas_half_matmul_simple(a: torch.Tensor, b: torch.Tensor):
+@torch.library.custom_op(
+    "cublas_ops_ext::cublas_hgemm_batched_simple",
+    device_types=["cuda"],
+    mutates_args=(),
+)
+def cublas_half_matmul_batched_simple(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    return _cublas_hgemm_batched_simple(a, b)
+
+
+@torch.library.register_fake("cublas_ops_ext::cublas_hgemm_batched_simple")
+def _(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    return F.linear(a, b, None)
+
+
+@torch.no_grad()
+@torch.library.custom_op(
+    "cublas_ops_ext::cublas_hgemm_simple", device_types=["cuda"], mutates_args=()
+)
+def cublas_half_matmul_simple(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return _cublas_hgemm_axbT(b, a)
 
 
 @torch.no_grad()
+@torch.library.custom_op(
+    "cublas_ops_ext::cublaslt_fused_half_matmul_simple",
+    device_types=["cuda"],
+    mutates_args=(),
+)
 def cublaslt_fused_half_matmul_simple(
     a: torch.Tensor,
     b: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
-    epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE",
-):
+    epilogue_str: Optional[str] = None,
+) -> torch.Tensor:
+    if epilogue_str is None:
+        epilogue_str = "NONE"
     if bias is None:
         bias = StaticState.get("bias", a.device)
     return _cublaslt_hgemm_simple(
@@ -75,17 +109,119 @@ def cublaslt_fused_half_matmul_simple(
 
 
 @torch.no_grad()
+@torch.library.custom_op(
+    "cublas_ops_ext::cublaslt_fused_half_matmul_batched_simple",
+    device_types=["cuda"],
+    mutates_args=(),
+)
 def cublaslt_fused_half_matmul_batched_simple(
     a: torch.Tensor,
     b: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
-    epilogue_str: Optional[Literal["NONE", "RELU", "GELU"]] = "NONE",
-):
+    epilogue_str: Optional[str] = None,
+) -> torch.Tensor:
+    if epilogue_str is None:
+        epilogue_str = "NONE"
     if bias is None:
         bias = StaticState.get("bias", a.device)
     return _cublaslt_hgemm_batched_simple(
         a, b, bias, epilogue_str, StaticState.get("workspace", a.device)
     )
+
+
+@torch.no_grad()
+@torch.library.custom_op(
+    "cublas_ops_ext::cublas_half_matmul",
+    device_types=["cuda"],
+    mutates_args=(),
+)
+def cublas_half_matmul(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    epilogue_str: Optional[str] = None,
+    has_bias: bool = False,
+) -> torch.Tensor:
+    if epilogue_str is None:
+        epilogue_str = "NONE"
+    out_dtype = x.dtype
+    needs_convert = out_dtype != torch.float16
+    if needs_convert:
+        x = x.type(torch.float16)
+    use_cublasLt = has_bias or epilogue_str != "NONE"
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    if math.prod(x.shape) == x.shape[-1]:
+        out = hgemv_simt(x, weight)
+        if use_cublasLt:
+            if has_bias:
+                out = out + bias.broadcast_to(out.shape)
+            if epilogue_str == "RELU":
+                out = F.relu(out)
+            elif epilogue_str == "GELU":
+                out = F.gelu(out)
+        if needs_convert:
+            out_final = out.type(out_dtype)
+        else:
+            out_final = out
+    elif not use_cublasLt:
+        if x.ndim == 3:
+            out = cublas_half_matmul_batched_simple(x, weight)
+        elif x.ndim == 2:
+            out = cublas_half_matmul_simple(x, weight)
+        else:
+            leading_dims = x.shape[:-1]
+            x = x.reshape(-1, x.shape[-1])
+            out = cublas_half_matmul_simple(x, weight).view(
+                *leading_dims, out.shape[-1]
+            )
+        if needs_convert:
+            out_final = out.type(out_dtype)
+        else:
+            out_final = out
+    else:
+        if x.ndim == 3:
+            out = cublaslt_fused_half_matmul_batched_simple(
+                x, weight, bias=bias.data, epilogue_str=epilogue_str
+            )
+        elif x.ndim == 2:
+            out = cublaslt_fused_half_matmul_simple(
+                x, weight, bias=bias.data, epilogue_str=epilogue_str
+            )
+        else:
+            leading_dims = x.shape[:-1]
+            x = x.reshape(-1, x.shape[-1])
+            out = cublaslt_fused_half_matmul_simple(
+                x, weight, bias=bias.data, epilogue_str=epilogue_str
+            ).view(*leading_dims, out.shape[-1])
+        if needs_convert:
+            out_final = out.type(out_dtype)
+        else:
+            out_final = out
+    return out_final
+
+
+
+@torch.no_grad()
+@torch.library.register_fake(
+    "cublas_ops_ext::cublas_half_matmul",
+)
+def _(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    epilogue_str: Optional[str] = None,
+    has_bias: bool = False,
+) -> torch.Tensor:
+    if epilogue_str is None:
+        epilogue_str = "NONE"
+
+    out_dtype = x.dtype
+    needs_convert = out_dtype != torch.float16
+
+    if needs_convert:
+        x = x.type(torch.float16)
+    return F.linear(x, weight, bias)
 
 
 class CublasLinear(nn.Linear):
@@ -103,57 +239,16 @@ class CublasLinear(nn.Linear):
         )
         self._epilogue_str = epilogue_str
         self.has_bias = bias
+        self.has_checked_weight = False
 
     def forward(self, x):
-        if x.dtype != torch.float16 or self.weight.device.type != "cuda":
-            out = super().forward(x)
-            if self._epilogue_str == "RELU":
-                out = torch.relu(out)
-            elif self._epilogue_str == "GELU":
-                out = torch.nn.functional.gelu(out)
-            return out
-
-        use_cublasLt = self.has_bias or self._epilogue_str != "NONE"
-        if x.ndim == 1:
-            x = x.unsqueeze(0)
-        if math.prod(x.shape) == x.shape[-1]:
-            out = hgemv_simt(x, self.weight)
-            if not use_cublasLt:
-                return out
-            else:
-                if self.has_bias:
-                    out += self.bias.data
-                if self._epilogue_str == "RELU":
-                    return torch.relu(out)
-                elif self._epilogue_str == "GELU":
-                    return torch.nn.functional.gelu(out)
-                return out
-        if not use_cublasLt:
-            if x.ndim == 3:
-                return cublas_half_matmul_batched_simple(x, self.weight)
-            elif x.ndim == 2:
-                return cublas_half_matmul_simple(x, self.weight)
-            leading_dims = x.shape[:-1]
-            x = x.reshape(-1, x.shape[-1])
-            out = cublas_half_matmul_simple(x, self.weight).view(
-                *leading_dims, out.shape[-1]
-            )
-        if use_cublasLt:
-            if x.ndim == 3:
-                return cublaslt_fused_half_matmul_batched_simple(
-                    x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
-                )
-            elif x.ndim == 2:
-                return cublaslt_fused_half_matmul_simple(
-                    x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
-                )
-
-            leading_dims = x.shape[:-1]
-            x = x.reshape(-1, x.shape[-1])
-            out = cublaslt_fused_half_matmul_simple(
-                x, self.weight, bias=self.bias.data, epilogue_str=self._epilogue_str
-            ).view(*leading_dims, out.shape[-1])
-        return out
+        if not self.has_checked_weight:
+            if not self.weight.dtype == torch.float16:
+                self.to(dtype=torch.float16)
+            self.has_checked_weight = True
+        return cublas_half_matmul(
+            x, self.weight, self.bias, self._epilogue_str, self.has_bias
+        )
 
 
 class CublasLinearGelu(CublasLinear):
