@@ -1,5 +1,5 @@
 import math
-from typing import Literal, Optional
+from typing import Optional, Any
 
 import torch
 from cublas_ops_ext import _simt_hgemv
@@ -28,7 +28,7 @@ class StaticState:
     }
 
     @classmethod
-    def get(cls, __name: str, device: torch.device) -> torch.Any:
+    def get(cls, __name: str, device: torch.device) -> Any:
         global has_moved
         idx = device.index if device.index is not None else 0
         if not has_moved[idx]:
@@ -60,7 +60,7 @@ def hgemv_simt(
 @torch.library.register_fake("cublas_ops_ext::hgemv_simt")
 def _(vec: torch.Tensor, mat: torch.Tensor, block_dim_x: int = 32) -> torch.Tensor:
     # prev_dims = vec.shape[:-1]
-    return F.linear(vec.view(1,-1), mat, None)
+    return F.linear(vec.view(1, -1), mat, None)
     # return (mat @ vec.reshape(-1, 1).contiguous()).view(*prev_dims, -1)
 
 
@@ -199,7 +199,6 @@ def cublas_half_matmul(
         else:
             out_final = out
     return out_final
-
 
 
 @torch.no_grad()
