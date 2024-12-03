@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Any
+from typing import Literal, Optional, Any
 
 import torch
 from cublas_ops_ext import _simt_hgemv
@@ -11,6 +11,7 @@ from cublas_ops_ext import (
 from cublas_ops_ext import cublaslt_hgemm_simple as _cublaslt_hgemm_simple
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.flop_counter import register_flop_formula, flop_registry, bmm_flop
 
 global has_moved
 has_moved = {idx: False for idx in range(torch.cuda.device_count())}
@@ -297,3 +298,29 @@ __ALL__ = [
     "cublaslt_fused_half_matmul_simple",
     "cublaslt_fused_half_matmul_batched_simple",
 ]
+
+@register_flop_formula(torch.ops.cublas_ops_ext.cublas_half_matmul)
+def cublas_half_matmul_flop(
+    a_shape: torch.Size,
+    b_shape: torch.Size,
+    bias_shape: Optional[torch.Size],
+    epilogue_str: Literal["GELU", "RELU", "NONE"],
+    *args,
+    out_shape: Optional[torch.Size] = None,
+    **kwargs,
+) -> int:
+    """Count flops for matmul."""
+    *b, m, in_dim = a_shape
+    *b2, out_dim, in_dim2 = b_shape
+
+    assert in_dim == in_dim2, "Incompatible contraction dimensions"
+
+    batch_bcast = torch.broadcast_shapes(b, b2)
+    batch_1d: int = math.prod(batch_bcast) if batch_bcast else 1
+
+    a_bcast = torch.Size((batch_1d, m, in_dim))
+    b_mT_bcast = torch.Size((batch_1d, in_dim2, out_dim))
+    return bmm_flop(a_bcast, b_mT_bcast)
+
+
+flop_registry[torch.ops.cublas_ops_ext.cublas_half_matmul] = cublas_half_matmul_flop
